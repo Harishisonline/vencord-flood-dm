@@ -97,10 +97,162 @@ respected on top of it.
 | | Fixed gap, 400ms | Retry-after driven |
 | --- | --- | --- |
 | Messages sent | 84 of 100 | **80 of 80** |
-| Throttles | 240 | **26** |
-| Requests wasted | 74% | **24%** |
-| Rate | 0.65/s | **0.76/s** |
+| Throttles | 240 | **35** |
+| Requests wasted | 74% | **30%** |
+| Rate | 0.65/s | **0.79/s** |
 | Slows down as it runs | yes | **no** |
+
+---
+
+## 1b. A retry that skipped the scheduler burned the attempts
+
+### What was wrong
+
+The retry-after driven scheduler had a second bug on top of the first one.
+The attempt loop looked like this:
+
+```ts
+for (let attempt = 0; attempt < 12; attempt++) {
+    try {
+        await send();
+        sentOk = true;
+        break;
+    } catch (err) {
+        if (status === 429) {
+            rateLimited++;
+            scheduler.onThrottled(getRetryAfterSeconds(err));
+            continue;               // <-- goes straight back to send()
+        }
+    }
+}
+```
+
+`scheduler.reserve()` was called once, **before** the attempt loop. So the
+`continue` on a 429 went straight back to the HTTP call without going
+through the scheduler. The retry fired instantly into a bucket that was
+still closed, got refused instantly, and burned the attempt in
+milliseconds.
+
+With a 12 attempt cap that failed 57 messages out of 150. The toast read:
+
+```
+93 messages sent, 57 failed, throttled 684 times, took 2m 16s (0.7/s)
+```
+
+684 throttles for 150 messages. A 12 attempt cap cannot survive that,
+because each attempt is consumed in about a millisecond.
+
+### What changed
+
+`reserve()` moved **inside** the attempt loop, so every attempt, including
+every retry, goes back through the scheduler and waits out the throttle:
+
+```ts
+for (let attempt = 0; attempt < 20; attempt++) {
+    await scheduler.reserve();
+    try {
+        await send();
+        ...
+    } catch (err) {
+        if (status === 429) {
+            scheduler.onThrottled(getRetryAfterSeconds(err));
+            continue;               // <-- now goes back to reserve()
+        }
+    }
+}
+```
+
+### The result
+
+```
+150 messages sent, throttled 107 times, took 4m 1s (0.6/s)
+```
+
+150 sent, 0 failed, confirmed against the API.
+
+---
+
+## 1c. Discord's own request layer was fighting the scheduler
+
+### What was wrong
+
+Even with the retry loop fixed, the throttle count was still far too high:
+684 throttles for 150 messages where the measurement said 35.
+
+The cause was Discord's own HTTP layer. It keeps a `Map` of rate limit
+records **keyed by request URL**, and every message in a DM uses the same
+URL:
+
+```
+/channels/<id>/messages
+```
+
+So the first throttle created a record against that URL, and every
+subsequent send was handled by that record. The Discord log made it
+obvious:
+
+```
+[HTTPUtils] cleanupRequestEntry: rate limit for /channels/.../messages retry after 3179ms
+[HTTPUtils] cleanupRequestEntry: extending rate limit for /channels/.../messages
+[HTTPUtils] cleanupRequestEntry: rate limit for /channels/.../messages retry after 7393ms
+```
+
+The record was **extending** on every retry, so the pause grew from 1
+second to 7.4 seconds and the request queue never drained.
+
+### What changed
+
+The send path uses a raw `fetch` against Discord's API instead of
+Discord's `RestAPI`, with the token read from Discord's own session module:
+
+```ts
+const tokenModule = findByProps("getToken") as { getToken?: () => string } | null;
+const token = tokenModule?.getToken?.();
+if (!token) throw new Error("Could not read the Discord session token.");
+
+const response = await fetch(`https://discord.com/api/v9/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: { "Authorization": token, "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+});
+```
+
+The server side rate limit still applies, of course. What goes away is the
+client side record that was turning one throttle into a chain.
+
+### The result
+
+| | RestAPI | Raw fetch |
+| --- | --- | --- |
+| Throttles in a 150 message run | 684 | **107** |
+| Messages failed | 57 | **0** |
+
+---
+
+## 1d. More workers did not make it faster, they just wasted requests
+
+### What was measured
+
+The first release defaulted to 3 sends in flight, on the theory that
+Discord's request round trip of about 650ms meant a single worker would
+leave the connection idle.
+
+Two runs of the same algorithm, same endpoint, same 80 messages:
+
+| Workers | Rate | Throttles | Requests wasted |
+| --- | --- | --- | --- |
+| 3 | 0.765/s | 106 | **57%** |
+| **1** | **0.791/s** | **35** | **30%** |
+
+The same throughput with nearly twice the waste. The write bucket is one
+bucket, so a second worker spends tokens the first worker would have used
+and then gets refused for them.
+
+### What changed
+
+The default is now **1 worker**. The setting is still there for people who
+want to try it, but the docs say plainly that it does not make the flood
+faster.
 
 ---
 
@@ -211,16 +363,36 @@ like `{}` while `settings.store.limits.count` returns the real value.
 
 ---
 
+## What was verified end to end
+
+Both of these were driven through the real UI, right-clicking a message in
+a DM and pressing the actual buttons, not by calling the plugin's functions
+directly.
+
+| Test | Result |
+| --- | --- |
+| Full 150 message flood | Toast: *"150 messages sent, throttled 107 times, took 4m 1s (0.6/s)"*. API confirmed **150 messages on the server**. 0 failures. |
+| Cancel 5 seconds into a 150 message flood | Toast: *"9 messages sent, cancelled, took 5s (1.7/s)"*. API confirmed **exactly 9 messages on the server**. |
+| Plugin exceptions during both runs | **0**. The only exception captured was Discord's own `Error: Sentry successfully disabled`, which comes from Discord's bundle and not from the plugin. |
+| Cancel actually stops the flood | Confirmed. The run reported itself as cancelled, and the server count matched the reported count exactly. |
+
+The 150 message flood was also checked for the failure mode that a short
+test cannot catch: the rate degraded from 4.3/s to 0.5/s over the run
+before the scheduler was fixed. After the fix the rate holds steady at
+about 0.6/s from the first burst to the last message.
+
+---
+
 ## Still to work on
 
 ### 1. Discord's write rate limit is the floor
 
 There is no bulk endpoint for this. Every message is one POST, and the
 bucket refills at a fixed rate. The measured sustained rate is about
-**0.76 messages per second** with the retry-after driven scheduler.
+**0.6 to 0.8 messages per second** with the retry-after driven scheduler.
 
-A 150 message flood takes roughly **3 minutes and 20 seconds** at that
-rate, plus the initial burst which comes out much faster.
+A verified 150 message flood took **4 minutes 1 second**, which is
+0.6/s including the initial burst. A larger flood does not go faster.
 
 Nothing in the plugin can go faster. The only thing that would change the
 number is Discord raising the limit.

@@ -56,11 +56,28 @@ Every number below was measured against the live Discord API on Discord
 | 3 in flight, 250ms apart | 2.67/s | 5 in 40 |
 | 4 in flight, 200ms apart | 1.58/s | 18 in 40 |
 | 6 in flight, 150ms apart | 2.01/s | 20 in 40 |
-| **Retry-after driven, 1 worker** | **0.76/s** | **26 in 80** |
+| Fixed 400ms gap, 3 in flight | 0.65/s | 240 in 100 |
+| Fixed 800ms gap, 3 in flight | 0.45/s | 179 in 100 |
+| Fixed 1200ms gap, 3 in flight | 0.64/s | 138 in 100 |
+| **Retry-after driven, 1 worker** | **0.79/s** | **35 in 80** |
 
-The last row is what shipped. It is slower at the start than the fixed gap
-approaches, but it wastes a quarter of its requests instead of two thirds,
-and it never slows down as it goes.
+The last row is what shipped. A fixed gap throws away two thirds of every
+run. The retry-after driven scheduler wastes about a quarter of its
+requests, and it never slows down as it goes.
+
+### Verified end to end
+
+Both of these were run through the real UI, right-clicking a message and
+pressing the buttons, against a live DM:
+
+- **A full 150 message flood.** Toast read *"150 messages sent, throttled
+  107 times, took 4m 1s (0.6/s)"*, and the API confirmed **150 messages on
+  the server**. Zero failures, zero plugin exceptions.
+- **A cancelled flood.** Cancelled 5 seconds into a 150 message run. Toast
+  read *"9 messages sent, cancelled, took 5s (1.7/s)"*, and the API
+  confirmed **exactly 9 messages on the server**. The cancel button stops
+  the flood between sends, it does not abandon a request that was already
+  in flight.
 
 ### Known limitations at the time of release
 

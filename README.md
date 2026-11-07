@@ -18,7 +18,9 @@ Discord asks for when it pushes back.
   does not throttle the account.
 - A progress window shows how many have gone out, the current speed, the
   estimated time left, and how many times Discord throttled the request.
-  Press **Cancel** at any point to stop it between sends.
+  Press **Cancel** at any point to stop it between sends. Verified live: a
+  150 message flood cancelled after 5 seconds left exactly 9 messages on the
+  server, and the result toast read *"9 messages sent, cancelled"*.
 
 ## Install
 
@@ -78,8 +80,8 @@ this reminder every time it runs.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Messages to send | 150 | How many copies of your message to send in one flood. |
-| Send requests at once | 3 | How many sends are in flight at the same time. |
-| Gap between sends | 250 | Milliseconds between the start of each send. |
+| Send requests at once | 1 | How many sends are in flight at the same time. Leave this at 1, it does not make the flood faster. |
+| Minimum gap between sends | 250 | The floor on how close two sends can be, in milliseconds. |
 | Ask for confirmation | on | Ask before flooding. |
 
 Each numeric setting has its own **Apply** button, shows **Saved** after you
@@ -88,20 +90,26 @@ can always see what the plugin is actually using.
 
 ## Limits and behaviour worth knowing
 
-**There is a hard limit.** Discord limits how fast a channel can be written
-to. The measured numbers against the live API on Discord 0.0.421:
+**There is a hard limit.** Discord allows roughly 30 messages through
+quickly and then the bucket refills at a fixed rate of about 0.6 to 0.8
+messages per second. The measured numbers against the live API on Discord
+0.0.421:
 
-| Setup | Rate | Throttles in 40 |
+| Setup | Rate | Throttles |
 | --- | --- | --- |
-| Sequential, 300ms apart | 1.01/s | 0 |
-| 3 in flight, 250ms apart | 2.67/s | 5 |
-| 4 in flight, 200ms apart | 1.58/s | 18 |
-| 6 in flight, 150ms apart | 2.01/s | 20 |
+| Fixed 400ms gap, 3 in flight | 0.65/s | 240 in 100 |
+| Fixed 800ms gap, 3 in flight | 0.45/s | 179 in 100 |
+| Fixed 1200ms gap, 3 in flight | 0.64/s | 138 in 100 |
+| **Retry-after driven, 1 worker** | **0.79/s** | **35 in 80** |
 
 Pushing harder does not make it faster, it just makes Discord refuse more.
-The plugin therefore paces itself, widens the gap when Discord pushes back,
-and never speeds up again on its own, because Discord's refill rate is fixed
-and waiting earns no credit.
+The plugin therefore paces itself and waits exactly as long as Discord
+asks, and it never speeds up again on its own, because Discord's refill
+rate is fixed and waiting earns no credit.
+
+A verified 150 message flood took **4 minutes 1 second**. A 500 message
+flood would take about 13 minutes. There is no way around this from a
+plugin.
 
 **Discord's rate limit is per channel.** Flooding one DM does not slow down
 sends in another, but the limit is shared across the account, so heavy
