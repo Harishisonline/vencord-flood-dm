@@ -16,7 +16,6 @@
 #   ./install.sh --regular           # regular Vencord (Windows/Linux/Mac installer)
 #   ./install.sh --help
 #
-# Before shipping this, change these four values:
 #
 set -euo pipefail
 
@@ -33,7 +32,9 @@ while [ $# -gt 0 ]; do
         --standalone) MODE="standalone" ;;
         --regular) MODE="regular" ;;
         --help|-h)
-            sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            # Print the header comment block, stopping at the first
+            # non-comment line.
+            sed -n '2,/^[^#]/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d'
             exit 0
             ;;
         *) echo "Unknown option: $1 (try --help)" >&2; exit 1 ;;
@@ -114,6 +115,20 @@ if [ "$MODE" = "standalone" ]; then
     echo "==> Backing up current renderer"
     cp -p "$DIST/renderer.js" "$DIST/renderer.js.bak"
     [ -f "$DIST/renderer.js.map" ] && cp -p "$DIST/renderer.js.map" "$DIST/renderer.js.map.bak" || true
+
+    # The Vencord bundle is replaced as a whole, so any other custom
+    # plugin in the current build goes with it. Say so rather than letting
+    # the user discover it.
+    OTHER_PLUGINS="$(grep -oE 'userplugins/[a-zA-Z0-9_-]+' "$DIST/renderer.js" 2>/dev/null \
+        | sed 's|userplugins/||' | sort -u | grep -v "^$PLUGIN_DIR$" || true)"
+    if [ -n "$OTHER_PLUGINS" ]; then
+        echo ""
+        echo "WARNING: the installed bundle also contains these custom plugins:"
+        echo "$OTHER_PLUGINS" | sed 's/^/    /'
+        echo "They will be removed by this install. Re-install them afterwards"
+        echo "with their own install scripts."
+        echo ""
+    fi
 
     echo "==> Installing"
     cp -p dist/renderer.js "$DIST/renderer.js"

@@ -57,6 +57,11 @@ replaces `renderer.js` with the official build, which does not contain this
 plugin, so the plugin disappears until you install it again. The script prints
 this reminder every time it runs.
 
+**The script replaces the Vencord bundle as a whole.** If you have other
+custom Vencord plugins installed, they are removed by this install. The
+script detects them and tells you which ones before it overwrites anything.
+Re-install each of them with its own install script afterwards.
+
 ### Option 2: manual
 
 1. Clone and build Vencord following the
