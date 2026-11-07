@@ -302,7 +302,7 @@ const settings = definePluginSettings({
                     />
                     <IntegerSetting
                         label="Send requests at once"
-                        description="How many sends are in flight at the same time. Discord allows a short burst at the start of a flood, and more workers use that burst up faster. Three is the sweet spot."
+                        description="How many sends are in flight at the same time. Discord allows a short burst at the start of a flood, and more workers use that burst up faster without going any faster. Measured: 1 worker sends at 0.79/s with 30 percent of requests refused, 3 workers send at 0.77/s with 57 percent refused. Leave this at 1."
                         value={current.concurrency}
                         min={1}
                         max={6}
