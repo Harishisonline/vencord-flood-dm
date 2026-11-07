@@ -57,10 +57,26 @@ replaces `renderer.js` with the official build, which does not contain this
 plugin, so the plugin disappears until you install it again. The script prints
 this reminder every time it runs.
 
-**The script replaces the Vencord bundle as a whole.** If you have other
-custom Vencord plugins installed, they are removed by this install. The
-script detects them and tells you which ones before it overwrites anything.
-Re-install each of them with its own install script afterwards.
+**The script replaces the Vencord bundle as a whole.** Any custom Vencord
+plugin that is already in the shared Vencord checkout gets built again, so
+the other DM plugin is kept. A plugin that is in your current bundle but
+not in the checkout is reported before the install, so you know what is
+about to go.
+
+## Installing both DM plugins together
+
+There is a combined installer that puts this plugin and
+[FloodDM](https://github.com/Harishisonline/vencord-flood-dm) into the same
+Vencord bundle in one build, so neither one removes the other:
+
+```bash
+git clone https://github.com/Harishisonline/vencord-dm-plugins.git
+cd vencord-dm-plugins
+./install.sh
+```
+
+All three installers share one Vencord checkout, so they compose. Installing
+one plugin does not remove the other, and the order does not matter.
 
 ### Option 2: manual
 

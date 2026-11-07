@@ -23,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_NAME="FloodDM"
 PLUGIN_DIR="floodDm"
 PLUGIN_SRC="$HERE/src/userplugins/$PLUGIN_DIR/index.tsx"
-CLONE="${VENCORD_CLONE:-$HOME/vencord-plugin-build}"
+CLONE="${VENCORD_CLONE:-$HOME/vencord-dm-plugins-build}"
 REPO="https://github.com/Vendicated/Vencord.git"
 MODE="auto"
 
@@ -116,18 +116,30 @@ if [ "$MODE" = "standalone" ]; then
     cp -p "$DIST/renderer.js" "$DIST/renderer.js.bak"
     [ -f "$DIST/renderer.js.map" ] && cp -p "$DIST/renderer.js.map" "$DIST/renderer.js.map.bak" || true
 
-    # The Vencord bundle is replaced as a whole, so any other custom
-    # plugin in the current build goes with it. Say so rather than letting
-    # the user discover it.
-    OTHER_PLUGINS="$(grep -oE 'userplugins/[a-zA-Z0-9_-]+' "$DIST/renderer.js" 2>/dev/null \
-        | sed 's|userplugins/||' | sort -u | grep -v "^$PLUGIN_DIR$" || true)"
-    if [ -n "$OTHER_PLUGINS" ]; then
+    # The Vencord bundle is replaced as a whole. This build keeps every
+    # plugin already present in the shared checkout, so the other DM
+    # plugins stay. Anything that was in the old bundle but is not in this
+    # build would disappear, so say so rather than letting the user
+    # discover it.
+    INSTALLED_PLUGINS="$(grep -oE 'userplugins/[a-zA-Z0-9_-]+' "$DIST/renderer.js" 2>/dev/null \
+        | sed 's|userplugins/||' | sort -u || true)"
+    DROPPED=""
+    for p in $INSTALLED_PLUGINS; do
+        [ "$p" = "$PLUGIN_DIR" ] && continue
+        [ -d "src/userplugins/$p" ] || DROPPED="$DROPPED $p"
+    done
+    if [ -n "$DROPPED" ]; then
         echo ""
-        echo "WARNING: the installed bundle also contains these custom plugins:"
-        echo "$OTHER_PLUGINS" | sed 's/^/    /'
-        echo "They will be removed by this install. Re-install them afterwards"
-        echo "with their own install scripts."
+        echo "WARNING: these custom plugins are in your current bundle but are"
+        echo "not in this build, so they will be removed:"
+        for p in $DROPPED; do echo "    $p"; done
         echo ""
+    fi
+
+    KEPT_PLUGINS="$(ls -1 src/userplugins 2>/dev/null | grep -v "^$PLUGIN_DIR$" || true)"
+    if [ -n "$KEPT_PLUGINS" ]; then
+        echo "    also building:"
+        for p in $KEPT_PLUGINS; do echo "        $p"; done
     fi
 
     echo "==> Installing"
