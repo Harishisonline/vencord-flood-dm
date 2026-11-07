@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Nothing yet.
 
+## [1.1.0] - 2026-11-07
+
+### Changed
+
+- **The install script now uses a shared Vencord checkout**
+  (`~/.vencord-dm-plugins-build`, override with `VENCORD_CLONE`).
+  `src/userplugins` is gitignored in Vencord, so anything already in that
+  checkout is built again. The installers therefore compose: installing
+  this plugin no longer removes BulkDeleteDm from the installed bundle, and
+  installing BulkDeleteDm no longer removes this one.
+- **The install script reports what it is doing honestly.** It lists the
+  plugins it is also building, and separately lists the plugins that are in
+  your current bundle but not in this build, which really will be removed.
+- **The README links the combined installer**, which puts both DM plugins
+  into one bundle in one build.
+
+Nothing about the plugin itself changed. The code, behaviour and settings
+are identical to v1.0.0.
+
 ## [1.0.0] - 2026-11-07
 
 First public release.
@@ -91,3 +110,4 @@ pressing the buttons, against a live DM:
 
 [Unreleased]: https://github.com/Harishisonline/vencord-flood-dm/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/Harishisonline/vencord-flood-dm/releases/tag/v1.0.0
+[1.1.0]: https://github.com/Harishisonline/vencord-flood-dm/compare/v1.0.0...v1.1.0
